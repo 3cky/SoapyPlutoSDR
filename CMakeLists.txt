@@ -12,9 +12,9 @@ endif(NOT CMAKE_BUILD_TYPE)
 set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "")
 
 find_package(SoapySDR NO_MODULE)
- if (NOT SoapySDR_FOUND) 
-    message(FATAL_ERROR "Soapy SDR development files not found...") 
- endif () 
+ if (NOT SoapySDR_FOUND)
+    message(FATAL_ERROR "Soapy SDR development files not found...")
+ endif ()
 
 ########################################################################
 # Find libiio
@@ -69,9 +69,9 @@ endif()
 
 
 SOAPY_SDR_MODULE_UTIL(
-    TARGET PlutSDRSupport
+    TARGET PlutoSDRSupport
     SOURCES
-    PlutoSDR_Registation.cpp
+    PlutoSDR_Registration.cpp
     PlutoSDR_Settings.cpp
     PlutoSDR_Streaming.cpp
     LIBRARIES ${LIBIIO_LIBRARIES} ${LIBAD9361_LIBRARIES}
