@@ -3,8 +3,8 @@
 #include <iostream>
 #include <cstdint>
 #include <cstring>
-#include <iterator> 
-#include <algorithm> 
+#include <iterator>
+#include <algorithm>
 
 struct PlutoSDRStream
 {
@@ -35,6 +35,16 @@ SoapySDR::ArgInfoList SoapyPlutoSDR::getStreamArgsInfo(const int direction, cons
 {
 	SoapySDR::ArgInfoList streamArgs;
 
+	SoapySDR::ArgInfo bufflenArg;
+	bufflenArg.key = "bufflen";
+	bufflenArg.value = std::to_string(PLUTOSDR_DEFAULT_BUFFER_SIZE);
+	bufflenArg.name = "Buffer Size";
+	bufflenArg.description = "Number of samples in rx buffer.";
+	bufflenArg.units = "samples";
+	bufflenArg.type = SoapySDR::ArgInfo::INT;
+
+	streamArgs.push_back(bufflenArg);
+
 	return streamArgs;
 }
 
@@ -48,7 +58,7 @@ SoapySDR::Stream *SoapyPlutoSDR::setupStream(
 
 	PlutoSDRStream *stream = new PlutoSDRStream();
 
-	if(direction ==SOAPY_SDR_RX){	
+	if(direction ==SOAPY_SDR_RX){
 
 		stream->rx = std::shared_ptr<rx_streamer>(new rx_streamer(rx_dev, format,channels, args));
 		rx_stream = stream->rx;
@@ -75,7 +85,12 @@ void SoapyPlutoSDR::closeStream( SoapySDR::Stream *handle)
 
 size_t SoapyPlutoSDR::getStreamMTU( SoapySDR::Stream *handle) const
 {
-	return 8196;
+	PlutoSDRStream *stream = reinterpret_cast<PlutoSDRStream *>(handle);
+
+	if (stream->rx)
+		return stream->rx->get_buffer_size();
+
+	return PLUTOSDR_DEFAULT_BUFFER_SIZE;
 }
 
 int SoapyPlutoSDR::activateStream(
@@ -144,22 +159,26 @@ int SoapyPlutoSDR::readStreamStatus(
 	return 0;
 }
 
-void rx_streamer::set_buffer_size_by_samplerate(const size_t _samplerate) {
+void rx_streamer::reset_buffer() {
+	std::unique_lock<std::mutex> lock(mutex);
 
-	uint32_t n = 1, x = uint32_t(_samplerate);
-	if ((x >> 16) == 0) { n = n + 16; x = x << 16; }
-	if ((x >> 24) == 0) { n = n + 8; x = x << 8; }
-	if ((x >> 28) == 0) { n = n + 4; x = x << 4; }
-	if ((x >> 30) == 0) { n = n + 2; x = x << 2; }
-	n = n - (x >> 31);
+	if (buf) {
+		iio_buffer_destroy(buf);
 
-	this->set_buffer_size(std::max(1 << (31 - n - 2), 16384));
+		buf = iio_device_create_buffer(dev, buffer_size, false);
+		if (!buf) {
+			SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to create buffer!");
+			throw std::runtime_error("Unable to create buffer!\n");
+		}
 
-	SoapySDR_logf(SOAPY_SDR_INFO, "Auto setting Buffer Size: %d", buffer_size);
+		items_in_buffer = 0;
+		please_refill_buffer = false;
+	}
+
 }
 
 rx_streamer::rx_streamer(const iio_device *_dev, const std::string &_format, const std::vector<size_t> &channels, const SoapySDR::Kwargs &args):
-	dev(_dev),buffer_size(16384),buf(nullptr)
+	dev(_dev),buffer_size(16384),buf(nullptr),byte_offset(0),items_in_buffer(0)
 
 {
 	if (dev == nullptr) {
@@ -195,19 +214,18 @@ rx_streamer::rx_streamer(const iio_device *_dev, const std::string &_format, con
 		try
 		{
 			size_t bufferLength = std::stoi(args.at("bufflen"));
-			if (bufferLength > 0)
+			if (bufferLength > 0) {
 				this->set_buffer_size(bufferLength);
+				SoapySDR_logf(SOAPY_SDR_INFO, "Set buffer size: %d", bufferLength);
+			}
 		}
 		catch (const std::invalid_argument &){}
 
 	}else{
 
-		long long samplerate;
-		
-		iio_channel_attr_read_longlong(iio_device_find_channel(dev, "voltage0", false),"sampling_frequency",&samplerate);
-		
-		this->set_buffer_size_by_samplerate(samplerate);
-	
+		this->set_buffer_size(PLUTOSDR_DEFAULT_BUFFER_SIZE);
+		SoapySDR_logf(SOAPY_SDR_INFO, "Set default buffer size: %d", PLUTOSDR_DEFAULT_BUFFER_SIZE);
+
 	}
 	buffer.reserve(buffer_size);
 	buffer.resize(buffer_size);
@@ -224,7 +242,7 @@ rx_streamer::rx_streamer(const iio_device *_dev, const std::string &_format, con
 
 }
 
-rx_streamer::~rx_streamer() 
+rx_streamer::~rx_streamer()
 {
 	if (buf) { iio_buffer_destroy(buf); }
 
@@ -272,7 +290,7 @@ size_t rx_streamer::recv(void * const *buffs,
 			int16_t *samples_cs16 = (int16_t *)buffs[index];
 			for (size_t j = 0; j < items; ++j) {
 				samples_cs16[j*2 + i]=buffer[j];
-			}		
+			}
 		}else if (format == SOAPY_SDR_CF32) {
 			float *samples_cf32 = (float *)buffs[index];
 			for (size_t j = 0; j < items; ++j) {
@@ -342,6 +360,10 @@ int rx_streamer::stop(const int flags,
 
 }
 
+size_t rx_streamer::get_buffer_size() {
+	return this->buffer_size;
+}
+
 void rx_streamer::set_buffer_size(const size_t _buffer_size){
 
 	std::unique_lock<std::mutex> lock(mutex);
@@ -354,7 +376,7 @@ void rx_streamer::set_buffer_size(const size_t _buffer_size){
 			SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to create buffer!");
 			throw std::runtime_error("Unable to create buffer!\n");
 		}
-			
+
 	}
 
 	this->buffer_size=_buffer_size;
@@ -456,7 +478,7 @@ int tx_streamer::send(	const void * const *buffs,
 	std::lock_guard<std::mutex> lock(mutex);
 
 	if (buffer.size() != numElems) {
-		if (buf) 
+		if (buf)
 			iio_buffer_destroy(buf);
 
 		buffer.reserve(numElems);

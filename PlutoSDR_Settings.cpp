@@ -62,7 +62,7 @@ std::string SoapyPlutoSDR::getDriverKey( void ) const
 	char git_tag[8];
 	iio_library_get_version(&major, &minor, git_tag);
 	char key_str[100];
-	sprintf(key_str, "Library version: %u.%u (git tag: %s)", major, minor, git_tag);
+	sprintf(key_str, "PlutoSDR library version: %u.%u (git tag: %s)", major, minor, git_tag);
 	return(key_str);
 }
 
@@ -73,7 +73,7 @@ std::string SoapyPlutoSDR::getHardwareKey( void ) const
 	char git_tag[8];
 	iio_context_get_version(ctx, &major, &minor, git_tag);
 	char key_str[100];
-	sprintf(key_str, "Backend version: %u.%u (git tag: %s)",major, minor, git_tag);
+	sprintf(key_str, "PlutoSDR backend version: %u.%u (git tag: %s)",major, minor, git_tag);
 	return(key_str);
 }
 
@@ -157,7 +157,7 @@ void SoapyPlutoSDR::setAntenna( const int direction, const size_t channel, const
 
 		iio_channel_attr_write(iio_device_find_channel(dev, "voltage0", true), "rf_port_select", name.c_str());
 
-	} 
+	}
 }
 
 
@@ -286,6 +286,8 @@ void SoapyPlutoSDR::setFrequency( const int direction, const size_t channel, con
 	if(direction==SOAPY_SDR_RX){
 
 		iio_channel_attr_write_longlong(iio_device_find_channel(dev, "altvoltage0", true),"frequency", freq);
+		if(rx_stream)
+			rx_stream->reset_buffer();
 	}
 
 	if(direction==SOAPY_SDR_TX){
@@ -363,8 +365,6 @@ void SoapyPlutoSDR::setSampleRate( const int direction, const size_t channel, co
 
 		iio_channel_attr_write_longlong(iio_device_find_channel(rx_dev, "voltage0", false), "sampling_frequency", decimation?samplerate/8:samplerate);
 
-		if(rx_stream)
-			rx_stream->set_buffer_size_by_samplerate(decimation ? samplerate / 8 : samplerate);
 	}
 
 	if(direction==SOAPY_SDR_TX){
@@ -386,7 +386,7 @@ void SoapyPlutoSDR::setSampleRate( const int direction, const size_t channel, co
 
 #ifdef HAS_AD9361_IIO
 	if(ad9361_set_bb_rate(dev,samplerate))
-		SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to set BB rate.");	
+		SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to set BB rate.");
 #endif
 
 }

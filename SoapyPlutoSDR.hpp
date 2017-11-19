@@ -3,6 +3,7 @@
 #include <mutex>
 #include <thread>
 #include <chrono>
+#include <atomic>
 #include <condition_variable>
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Logger.hpp>
@@ -10,6 +11,8 @@
 
 #define PLUTOSDR_DEFAULT_IP "192.168.2.1"
 #define PLUTOSDR_DEFAULT_HOSTNAME "pluto.local"
+
+#define PLUTOSDR_DEFAULT_BUFFER_SIZE (128 * 1024)
 
 class rx_streamer {
 	public:
@@ -27,7 +30,9 @@ class rx_streamer {
 		int stop(const int flags,
 				const long long timeNs=100000);
 
-		void set_buffer_size_by_samplerate(const size_t _samplerate);
+		size_t get_buffer_size();
+
+		void reset_buffer();
 
 	private:
 
@@ -41,7 +46,7 @@ class rx_streamer {
 		std::mutex mutex;
 		std::condition_variable cond, cond2;
 		std::vector<iio_channel* > channel_list;
-		volatile bool thread_stopped, please_refill_buffer;
+		std::atomic<bool> thread_stopped, please_refill_buffer;
 		const iio_device  *dev;
 
 		std::vector<int16_t> buffer;
